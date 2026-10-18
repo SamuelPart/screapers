@@ -110,8 +110,10 @@ class ChatEngine:
             url = r.get("embed_url") or r.get("url", "")
             page = r.get("pagina_exacta") or r.get("fuente_pagina") or r.get("fuente", "")
             dom = r.get("dominio", "")
+            method = r.get("fuente_deteccion", "")
+            extra = f"\n   cómo se encontró: {method}" if method and method != "iframe" else ""
             lines.append(f"{i}. 🔗 {url}" + (f"\n   dominio: {dom}" if dom else "")
-                         + (f"\n   página exacta: {page}" if page else ""))
+                         + (f"\n   página exacta: {page}" if page else "") + extra)
         if len(records) > limit:
             lines.append(f"… y {len(records) - limit} más (en la tabla/exportación están todos).")
         return "\n".join(lines)
@@ -278,9 +280,12 @@ class ChatEngine:
                 return BotReply(head + self._fmt_records(all_records) + related_note + tail,
                                 records=all_records, related=self.ctx.related,
                                 status=f"{n_iframe} embed(s) encontrados")
-            return BotReply("La página cargó, pero **no contiene ningún `<iframe>`** con `src` válido. "
-                            "Puede que el reproductor se inyecte con JavaScript (esta versión lee el HTML inicial) "
-                            "o que el embed esté en otra página del mismo título." + related_note,
+            return BotReply("La página cargó, pero no apareció ningún `<iframe>` ni oculto: revisé el "
+                            "clásico, el diferido (data-src), el de pulsar play (data-embed/onclick), "
+                            "el escrito por JavaScript, el de srcdoc y URLs en base64. "
+                            "Si ni así está, el reproductor se genera ya en el navegador tras interactuar "
+                            "(eso el bot no lo fuerza en sitios de terceros) o el embed vive en otra página "
+                            "del mismo título." + related_note,
                             records=all_records, related=self.ctx.related, status="Sin iframes en la página")
 
     # atajo para la GUI: fijar el título buscado

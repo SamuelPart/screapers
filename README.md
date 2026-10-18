@@ -44,6 +44,12 @@ blancos): escribes lo que quieres y el bot lo hace y te responde.
 2. **Buscador dirigido de `<iframe>`**: el motor recorre el HTML en flujo y
    conserva *solo* la línea del iframe (`src`, dominio, página exacta); el
    resto de la página se descarta al instante. Más rápido y ligero.
+   También caza los **escondidos**: el clásico pegado tal cual
+   (`<iframe class="metaframe rptss" src="https://voe.sx/e/…">`), el
+   diferido (`data-src`), el que aparece **al pulsar play** (`data-embed`,
+   `onclick` — el bot lee la URL sin pulsar nada en el sitio), el escrito
+   por JavaScript, el de `srcdoc` y URLs codificadas en **base64**. El bot
+   te dice cómo encontró cada uno («cómo se encontró: …»).
 3. Panel lateral: resultados, datasets guardados y ajustes (páginas, pausa,
    robots.txt, 🏠 modo «mi sitio», proxy propio de sesión).
 4. Exporta a CSV, JSON, JSONL, **CSV.GZ / JSON.GZ comprimidos**, XLSX o SQLite.
