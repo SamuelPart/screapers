@@ -183,10 +183,15 @@ def parse_page(html: str, base_url: str, selector: str = "", want_embeds: bool =
                                            "dominio": urlparse(u).netloc,
                                            "nombre": str(it.get("name", ""))[:120]})
 
-    if iframe_only:
+    if want_embeds or iframe_only:
+        # El buscador dirigido aporta también los iframes ocultos/diferidos
         from .iframe_finder import find_iframes
-        _, iframes = find_iframes(html, base_url)
-        embeds = iframes
+        _, hidden = find_iframes(html, base_url)
+        if iframe_only:
+            embeds = hidden
+        else:
+            known = {e["embed_url"] for e in embeds}
+            embeds = embeds + [h for h in hidden if h["embed_url"] not in known]
 
     records: list[dict] = []
     if want_embeds:
