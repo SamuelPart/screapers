@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Screapers
+Comment=Scraping web con IA y seguridad
+Comment[es]=Extrae datos de sitios web de forma segura
+Exec=screapers
+Icon=screapers
+Terminal=false
+Categories=Network;WebDevelopment;Utility;
+Keywords=scraping;web;datos;ia;
+StartupNotify=true
