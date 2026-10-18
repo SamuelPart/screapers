@@ -101,6 +101,12 @@ class App(tk.Tk):
         ttk.Checkbutton(opts, text="Ocultar datos personales (PII)", variable=self.mask).grid(row=1, column=2, padx=6, pady=(0, 8), sticky="w")
         ttk.Checkbutton(opts, text="Permitir red local", variable=self.allow_priv).grid(row=1, column=4, padx=6, pady=(0, 8), sticky="w")
         ttk.Checkbutton(opts, text="Bots IA activos", variable=self.use_ai).grid(row=1, column=6, padx=6, pady=(0, 8), sticky="w")
+        ttk.Label(opts, text="Proxy propio (opcional):", style="Card.TLabel").grid(row=2, column=0, padx=(12, 2), pady=(0, 8), sticky="w")
+        self.proxy_var = tk.StringVar(value="")
+        ttk.Entry(opts, textvariable=self.proxy_var, width=44, show="•").grid(
+            row=2, column=1, columnspan=5, sticky="w", pady=(0, 8))
+        ttk.Label(opts, text="ej. http://127.0.0.1:8080 · solo dura la sesión, no se guarda",
+                  style="Card.TLabel").grid(row=2, column=6, columnspan=4, padx=6, pady=(0, 8), sticky="w")
 
         self.progress = ttk.Progressbar(self, mode="indeterminate")
         self.progress.pack(fill="x", padx=18)
@@ -156,6 +162,7 @@ class App(tk.Tk):
         s.delay_max = float(self.delay_max.get())
         s.timeout = float(self.timeout.get())
         s.use_ai = self.use_ai.get()
+        s.proxy = self.proxy_var.get().strip() or None  # solo en memoria, jamás a disco
         s.respect_robots, s.mask_pii, s.allow_private = self.respect.get(), self.mask.get(), self.allow_priv.get()
         s.export_format = self.fmt_var.get()
         self.bots = AIBots(s)
@@ -169,6 +176,7 @@ class App(tk.Tk):
             return
         self._sync_settings()
         self.records = []
+        self._last_page = None
         self._fill_tree([])
         self.stop_event.clear()
         self.btn_start.configure(state="disabled")
@@ -183,8 +191,9 @@ class App(tk.Tk):
             scraper = Scraper(self.settings, log=lambda m: self.queue.put(("log", m)), stop=self.stop_event)
             pages, records = scraper.crawl(url, selector, on_page=lambda p, r: self.queue.put(("page", (p, r))))
             cleaned = self.bots.clean_records(records)
-            self.store.save(url.split("//")[-1].split("/")[0] or "dataset", cleaned)
-            self.queue.put(("done", (pages, cleaned)))
+            if pages:
+                self.store.save(url.split("//")[-1].split("/")[0] or "dataset", cleaned)
+            self.queue.put(("done", (pages, cleaned, scraper.last_error)))
         except Exception as e:
             self.queue.put(("error", redact_text(str(e))))
 
@@ -192,13 +201,17 @@ class App(tk.Tk):
         self.stop_event.set()
         self.status.set("Deteniendo…")
 
-    def analyze_ai(self):
+    def analyze_ai(self, silent: bool = False):
         if not self.settings.use_ai:
-            self._set_text(self.ai_text, "Los bots de IA están desactivados en los ajustes. "
-                                         "Activa «Bots IA activos» para analizar la página.")
+            if not silent:
+                self._set_text(self.ai_text, "Los bots de IA están desactivados en los ajustes. "
+                                             "Activa «Bots IA activos» para analizar la página.")
             return
         if not getattr(self, "_last_page", None):
-            messagebox.showinfo("Bots IA", "Primero extrae una página para que los bots puedan analizarla.")
+            # En automático (al terminar una búsqueda) nunca se tapa el resultado
+            # con esta ventana: el motivo real ya va al registro y a la barra de estado.
+            if not silent:
+                messagebox.showinfo("Bots IA", "Primero extrae una página para que los bots puedan analizarla.")
             return
         info = self.bots.analyze_page(self._last_page, self.records)
         lines = [f"Modo IA: {info['modo_ia']}\n", "— Sugerencias del ScoutBot —", *info["sugerencias"],
@@ -301,15 +314,28 @@ class App(tk.Tk):
                     self._last_page = {k: v for k, v in page.items()}
                     self._show_preview(self._last_page)
                 elif kind == "done":
-                    pages, records = payload
+                    pages, records, last_error = payload
                     self.records = records
                     self._fill_tree(records)
                     self.refresh_datasets()
                     self.progress.stop()
                     self.btn_start.configure(state="normal")
-                    self.status.set(f"Terminado: {pages} página(s), {len(records)} registros limpios y protegidos.")
-                    self.audit.append("scrape_done", f"{pages} páginas, {len(records)} registros")
-                    self.analyze_ai()
+                    if pages == 0:
+                        detalle = last_error or "sin respuesta del sitio"
+                        self.status.set(f"Sin resultados: el sitio no entregó ninguna página. Motivo: {detalle}")
+                        self._append(self.log_text,
+                                     "⚠ Búsqueda sin páginas. Motivo real: " + detalle)
+                        self._set_text(self.ai_text,
+                                       "Los bots no tienen página que analizar porque el sitio no entregó ninguna.\n"
+                                       "Mira la pestaña «Registro y seguridad»: ahí está el motivo exacto "
+                                       "(403/CAPTCHA, robots.txt, tiempo agotado…).\n"
+                                       "Si el sitio deniega el acceso, Screapers no lo fuerza; prueba pausas más "
+                                       "largas, profundidad 0 o otra página del mismo sitio.")
+                        self.audit.append("scrape_empty", detalle)
+                    else:
+                        self.status.set(f"Terminado: {pages} página(s), {len(records)} registros limpios y protegidos.")
+                        self.audit.append("scrape_done", f"{pages} páginas, {len(records)} registros")
+                        self.analyze_ai(silent=True)
                 elif kind == "error":
                     self.progress.stop()
                     self.btn_start.configure(state="normal")
