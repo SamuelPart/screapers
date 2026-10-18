@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "screapers"
+version = "0.1.0"
+description = "Scraping web con interfaz de escritorio, bots de IA y seguridad para Linux"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+xlsx = ["openpyxl>=3.1"]
+
+[project.gui-scripts]
+screapers = "screapers.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["screapers*"]
