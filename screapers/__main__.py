@@ -37,10 +37,23 @@ def _selftest() -> int:
     return 0
 
 
+def _gui_smoke() -> int:
+    """Abre y cierra la ventana sin mainloop (para CI con Xvfb)."""
+    from .desktop import App
+    app = App()
+    app.update_idletasks()
+    app.update()
+    app.destroy()
+    print("gui-smoke OK")
+    return 0
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--selftest" in argv:
         return _selftest()
+    if "--gui-smoke" in argv:
+        return _gui_smoke()
     try:
         from .desktop import main as gui_main
     except ModuleNotFoundError as e:

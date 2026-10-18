@@ -83,18 +83,24 @@ class App(tk.Tk):
         self.max_pages = tk.IntVar(value=self.settings.max_pages)
         self.max_depth = tk.IntVar(value=self.settings.max_depth)
         self.delay_min = tk.DoubleVar(value=self.settings.delay_min)
+        self.delay_max = tk.DoubleVar(value=self.settings.delay_max)
+        self.timeout = tk.DoubleVar(value=self.settings.timeout)
         self.respect = tk.BooleanVar(value=self.settings.respect_robots)
         self.mask = tk.BooleanVar(value=self.settings.mask_pii)
         self.allow_priv = tk.BooleanVar(value=self.settings.allow_private)
+        self.use_ai = tk.BooleanVar(value=self.settings.use_ai)
         for col, (label, var, w) in enumerate([
                 ("Máx. páginas", self.max_pages, 5), ("Profundidad", self.max_depth, 5),
-                ("Pausa mín. (s)", self.delay_min, 5)]):
+                ("Pausa mín. (s)", self.delay_min, 5), ("Pausa máx. (s)", self.delay_max, 5),
+                ("Timeout (s)", self.timeout, 5)]):
             ttk.Label(opts, text=label + ":", style="Card.TLabel").grid(row=0, column=col * 2, padx=(12, 2), pady=8)
-            ttk.Spinbox(opts, textvariable=var, width=w, from_=0, to=500, increment=0.5 if var is self.delay_min else 1) \
+            ttk.Spinbox(opts, textvariable=var, width=w, from_=0, to=500,
+                        increment=0.5 if isinstance(var, tk.DoubleVar) else 1) \
                 .grid(row=0, column=col * 2 + 1, pady=8)
-        ttk.Checkbutton(opts, text="Respetar robots.txt", variable=self.respect).grid(row=0, column=6, padx=10)
-        ttk.Checkbutton(opts, text="Ocultar datos personales (PII)", variable=self.mask).grid(row=0, column=7, padx=6)
-        ttk.Checkbutton(opts, text="Permitir red local", variable=self.allow_priv).grid(row=0, column=8, padx=6)
+        ttk.Checkbutton(opts, text="Respetar robots.txt", variable=self.respect).grid(row=1, column=0, padx=10, pady=(0, 8), sticky="w")
+        ttk.Checkbutton(opts, text="Ocultar datos personales (PII)", variable=self.mask).grid(row=1, column=2, padx=6, pady=(0, 8), sticky="w")
+        ttk.Checkbutton(opts, text="Permitir red local", variable=self.allow_priv).grid(row=1, column=4, padx=6, pady=(0, 8), sticky="w")
+        ttk.Checkbutton(opts, text="Bots IA activos", variable=self.use_ai).grid(row=1, column=6, padx=6, pady=(0, 8), sticky="w")
 
         self.progress = ttk.Progressbar(self, mode="indeterminate")
         self.progress.pack(fill="x", padx=18)
@@ -109,8 +115,19 @@ class App(tk.Tk):
         sb = ttk.Scrollbar(f_res, command=self.tree.yview); sb.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=sb.set)
 
+        f_prev = ttk.Frame(nb); nb.add(f_prev, text="  👁 Vista previa  ")
+        self.preview_text = self._text_tab(f_prev)
         f_ai = ttk.Frame(nb); nb.add(f_ai, text="  🤖 Bots IA  ")
         self.ai_text = self._text_tab(f_ai)
+        f_ds = ttk.Frame(nb); nb.add(f_ds, text="  💾 Datasets guardados  ")
+        self.ds_list = tk.Listbox(f_ds, font=("Sans", 10), relief="flat", activestyle="none")
+        self.ds_list.pack(side="left", fill="both", expand=True, padx=6, pady=6)
+        ds_btns = ttk.Frame(f_ds)
+        ds_btns.pack(side="right", fill="y", padx=6, pady=6)
+        ttk.Button(ds_btns, text="↻ Actualizar", command=self.refresh_datasets).pack(fill="x", pady=3)
+        ttk.Button(ds_btns, text="📂 Cargar en tabla", command=self.load_dataset).pack(fill="x", pady=3)
+        ttk.Button(ds_btns, text="🗑 Borrar", command=self.delete_dataset).pack(fill="x", pady=3)
+        self.refresh_datasets()
         f_log = ttk.Frame(nb); nb.add(f_log, text="  🛡 Registro y seguridad  ")
         self.log_text = self._text_tab(f_log)
 
@@ -136,6 +153,9 @@ class App(tk.Tk):
         s = self.settings
         s.max_pages, s.max_depth = int(self.max_pages.get()), int(self.max_depth.get())
         s.delay_min = float(self.delay_min.get())
+        s.delay_max = float(self.delay_max.get())
+        s.timeout = float(self.timeout.get())
+        s.use_ai = self.use_ai.get()
         s.respect_robots, s.mask_pii, s.allow_private = self.respect.get(), self.mask.get(), self.allow_priv.get()
         s.export_format = self.fmt_var.get()
         self.bots = AIBots(s)
@@ -173,6 +193,10 @@ class App(tk.Tk):
         self.status.set("Deteniendo…")
 
     def analyze_ai(self):
+        if not self.settings.use_ai:
+            self._set_text(self.ai_text, "Los bots de IA están desactivados en los ajustes. "
+                                         "Activa «Bots IA activos» para analizar la página.")
+            return
         if not getattr(self, "_last_page", None):
             messagebox.showinfo("Bots IA", "Primero extrae una página para que los bots puedan analizarla.")
             return
@@ -183,6 +207,56 @@ class App(tk.Tk):
             lines += ["\n— Resumen IA en nube —", info["resumen_ia"]]
         lines += ["\n— Esquema inferido —"] + [f"  • {k}: {v}" for k, v in info["esquema"].items()]
         self._set_text(self.ai_text, "\n".join(lines))
+
+    # ------------------------------------------------------ datasets
+    def refresh_datasets(self):
+        if not hasattr(self, "ds_list"):
+            return
+        self.ds_list.delete(0, "end")
+        for name in self.store.list():
+            try:
+                n = len(self.store.load(name))
+            except Exception:
+                n = "?"
+            self.ds_list.insert("end", f"{name}  ({n} registros)")
+
+    def _selected_dataset(self) -> str | None:
+        sel = self.ds_list.curselection()
+        if not sel:
+            messagebox.showinfo("Datasets", "Selecciona primero un dataset de la lista.")
+            return None
+        return self.ds_list.get(sel[0]).rsplit("  (", 1)[0]
+
+    def load_dataset(self):
+        name = self._selected_dataset()
+        if not name:
+            return
+        try:
+            self.records = self.store.load(name)
+            self._fill_tree(self.records)
+            self.status.set(f"Dataset «{name}» cargado: {len(self.records)} registros. Ya puedes exportarlo.")
+            self.audit.append("dataset_load", name)
+        except Exception as e:
+            messagebox.showerror("Datasets", redact_text(str(e)))
+
+    def delete_dataset(self):
+        name = self._selected_dataset()
+        if not name:
+            return
+        if messagebox.askyesno("Borrar dataset", f"¿Borrar definitivamente «{name}»?"):
+            self.store.delete(name)
+            self.refresh_datasets()
+            self.audit.append("dataset_delete", name)
+
+    def _show_preview(self, page: dict):
+        lines = [page.get("titulo") or "(sin título)", page.get("url", ""), ""]
+        if page.get("descripcion"):
+            lines += [page["descripcion"], ""]
+        if page.get("encabezados"):
+            lines += ["— Encabezados —"] + [f"  • {h}" for h in page["encabezados"][:10]] + [""]
+        if page.get("parrafos"):
+            lines += ["— Texto —"] + page["parrafos"][:8]
+        self._set_text(self.preview_text, "\n".join(lines))
 
     def export(self):
         if not self.records:
@@ -225,10 +299,12 @@ class App(tk.Tk):
                 elif kind == "page":
                     page, _ = payload
                     self._last_page = {k: v for k, v in page.items()}
+                    self._show_preview(self._last_page)
                 elif kind == "done":
                     pages, records = payload
                     self.records = records
                     self._fill_tree(records)
+                    self.refresh_datasets()
                     self.progress.stop()
                     self.btn_start.configure(state="normal")
                     self.status.set(f"Terminado: {pages} página(s), {len(records)} registros limpios y protegidos.")

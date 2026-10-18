@@ -34,7 +34,9 @@ Después busca **«Screapers»** en el menú de aplicaciones de tu escritorio
    **selector** simple (`article`, `.producto`, `#lista`, `a`) afinas la extracción.
 3. Los **bots de IA** analizan la página, sugieren qué extraer, limpian y
    deduplican los registros, infieren tipos y resumen el contenido.
-4. Revisas la tabla de resultados y **exportas** a CSV, JSON, JSONL, XLSX o SQLite.
+4. Revisas la tabla de resultados y la **vista previa**, gestionas tus
+   **datasets guardados** (cargar/borrar desde la propia ventana) y
+   **exportas** a CSV, JSON, JSONL, XLSX o SQLite.
 
 ## Bots de IA
 
@@ -72,6 +74,9 @@ python3 -m screapers --selftest     # verificación rápida del núcleo
 python3 -m unittest discover -s tests -v
 python3 -m screapers                # abre la interfaz
 ```
+
+CI en GitHub Actions (`.github/workflows/ci.yml`): tests, selftest, smoke
+test de la ventana real bajo Xvfb y construcción del `.deb` en cada push/PR.
 
 ```
 screapers/
