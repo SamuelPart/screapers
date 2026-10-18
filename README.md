@@ -54,9 +54,15 @@ OpenAI — enviando solo texto **redactado** (sin secretos).
 
 **Para que no te bloqueen (scraping educado, sin evasión abusiva):**
 respeta `robots.txt`, pausa con jitter entre peticiones (configurable),
-reintentos con backoff honrando `Retry-After`, User-Agent rotado entre
-navegadores reales y límite de tamaño por página. Ante 401/403/CAPTCHA se
-**detiene y te lo explica**: no burla CAPTCHAs, paywalls ni accesos.
+reintentos con backoff honrando `Retry-After` y límite de tamaño por página.
+La sesión es **consistente** (mismo navegador y cookies durante todo el
+rastreo: cambiar de identidad en cada petición es lo que delata a un bot) y
+el ritmo es **adaptativo**: si el sitio responde 429/5xx, la app frena sola
+y sube la pausa entre páginas. Puedes usar **tu propio proxy** desde la
+propia ventana (queda solo en memoria, no se guarda). Ante 401/403/CAPTCHA
+se **detiene y te dice el motivo exacto** en la barra de estado y en la
+pestaña Bots IA: no burla CAPTCHAs, paywalls, baneos ni accesos, ni simula
+ser varias personas desde distintas IPs.
 
 **Para proteger tu información:**
 - 🛡 **Anti-SSRF:** bloquea destinos en red privada/local salvo que lo actives.

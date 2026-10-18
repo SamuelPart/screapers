@@ -7,6 +7,7 @@ sitio. No burla CAPTCHAs, paywalls ni controles de acceso.
 from __future__ import annotations
 
 import gzip
+import http.cookiejar
 import random
 import threading
 import time
@@ -33,11 +34,16 @@ class Scraper:
         self.s, self.log = settings, log
         self.stop = stop or threading.Event()
         self._robots_cache: dict[str, urllib.robotparser.RobotFileParser] = {}
+        # Sesión consistente: mismo User-Agent y cookies durante todo el rastreo.
+        # Rotar la identidad en cada petición es justo lo que delata a un bot.
+        self.user_agent = random.choice(USER_AGENTS)
+        self.last_error: str = ""
+        self._extra_delay = 0.0  # freno adaptativo ante 429/5xx
         self._opener = self._build_opener()
 
     def _build_opener(self):
-        handlers = []
-        if self.s.proxy:
+        handlers = [urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())]
+        if self.s.proxy:  # proxy propio del usuario, solo durante la sesión
             handlers.append(urllib.request.ProxyHandler({"http": self.s.proxy, "https": self.s.proxy}))
         return urllib.request.build_opener(*handlers)
 
@@ -56,7 +62,7 @@ class Scraper:
                 rp = None  # sin robots legible: se permite, con velocidad educada
             self._robots_cache[base] = rp
         rp = self._robots_cache[base]
-        return True if rp is None else rp.can_fetch(USER_AGENTS[0], url)
+        return True if rp is None else rp.can_fetch(self.user_agent, url)
 
     # -- descarga ---------------------------------------------------
     def fetch(self, url: str) -> str:
@@ -66,7 +72,7 @@ class Scraper:
             if self.stop.is_set():
                 raise InterruptedError("Detenido por el usuario")
             req = urllib.request.Request(url, headers={
-                "User-Agent": random.choice(USER_AGENTS),
+                "User-Agent": self.user_agent,
                 "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "es-ES,es;q=0.9,en;q=0.7",
                 "Accept-Encoding": "gzip",
@@ -90,7 +96,9 @@ class Scraper:
                 if e.code == 429 or e.code >= 500:
                     wait = e.headers.get("Retry-After") if e.headers else None
                     delay = float(wait) if (wait or "").isdigit() else min(2 ** attempt * 2, 20)
-                    self.log(f"⏳ HTTP {e.code}: espero {delay:.0f}s (reintento {attempt + 1}/3)")
+                    self._extra_delay = min(self._extra_delay + 2.0, 30.0)  # frenar más a partir de ahora
+                    self.log(f"⏳ HTTP {e.code}: el sitio pide calma. Espero {delay:.0f}s "
+                             f"(reintento {attempt + 1}/3) y subo la pausa entre páginas.")
                     self.stop.wait(delay)
                     continue
                 raise
@@ -102,7 +110,12 @@ class Scraper:
     # -- rastreo ------------------------------------------------------
     def crawl(self, start_url: str, selector: str = "", on_page=lambda page, records: None):
         """BFS mismo dominio. Devuelve (páginas, registros)."""
-        start = assert_safe_url(start_url, allow_private=self.s.allow_private)
+        try:
+            start = assert_safe_url(start_url, allow_private=self.s.allow_private)
+        except Exception as e:  # URL inválida/insegura: 0 páginas con motivo, sin excepción
+            self.last_error = str(e)
+            self.log(f"✗ {start_url}: {e}")
+            return 0, []
         host = urlparse(start).netloc
         queue, visited = deque([(start, 0)]), set()
         all_records: list[dict] = []
@@ -115,13 +128,14 @@ class Scraper:
             if not self._allowed(url):
                 self.log(f"🤖 robots.txt no permite: {url}")
                 continue
-            if pages > 0:  # pausa educada entre peticiones
-                self.stop.wait(random.uniform(self.s.delay_min, self.s.delay_max))
+            if pages > 0:  # pausa educada (y adaptativa) entre peticiones
+                self.stop.wait(random.uniform(self.s.delay_min, self.s.delay_max) + self._extra_delay)
             try:
                 html = self.fetch(url)
             except InterruptedError:
                 break
             except Exception as e:
+                self.last_error = str(e)
                 self.log(f"✗ {url}: {e}")
                 continue
             page = parse_page(html, url, selector)
