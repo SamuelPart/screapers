@@ -27,34 +27,26 @@ Después busca **«Screapers»** en el menú de aplicaciones de tu escritorio
 
 **Desinstalar:** `./uninstall.sh`
 
-## Qué hace
+## Qué hace: habla con el bot 💬
 
-1. Pegas una **URL**, ajustas páginas/profundidad/pausa y pulsas **Iniciar**.
-2. **Le dices al bot exactamente qué hacer** en el campo «¿Qué quieres hacer
-   en este sitio?». Entiende órdenes como:
-   - *«Extrae el enlace del embed de esta URL»*
-   - *«Extrae el embed y, si es una serie, busca episodios con el mismo
-     nombre o similares»* (entra en los relacionados y los agrupa por
-     temporada/episodio)
-   - *«Extrae las tablas»*, *«extrae los enlaces»*…
-   Escribe también el **título** (serie/película) para afinar la búsqueda.
-3. Extrae enlaces, tablas, encabezados y datos estructurados. Con un
-   **selector** simple (`article`, `.producto`, `#lista`, `a`) afinas más.
-4. Los **bots de IA** analizan la página, sugieren qué extraer, limpian y
-   deduplican los registros, infieren tipos y resumen el contenido.
-5. Revisas resultados y **vista previa**, gestionas tus **datasets** y
-   **exportas** a CSV, JSON, JSONL, **CSV.GZ / JSON.GZ comprimidos**, XLSX o SQLite.
+La interfaz es una **conversación oscura con la IA** (sin formularios
+blancos): escribes lo que quieres y el bot lo hace y te responde.
 
-### 🎬 Centro de streaming (películas y series)
-- **Embeds**: detecta `<iframe>`, `<embed>`, `<object>`, `<video>/<source>`,
-  `og:video`, `twitter:player`, JSON-LD `VideoObject` y oEmbed, con su dominio.
-- **Relacionados**: dentro del mismo dominio encuentra títulos iguales o
-  similares al buscado y los **ordena por temporada y episodio**.
-- **Buscador interno**: si en lo visitado no hay relacionados, prueba el
-  buscador del propio sitio (`/?s=`, `/search?q=`, `/buscar?q=`…).
-- **🏠 Modo «mi sitio»**: si la web es tuya (o tienes permiso), puedes
-  auditarla ignorando su `robots.txt`; queda registrado en la auditoría.
-  No salta inicios de sesión, CAPTCHAs ni bloqueos por IP.
+1. Pega la URL de una película, serie o capítulo y pide, por ejemplo:
+   - *«Encuentra el iframe de esta página»* → el bot responde:
+     *«✅ Encontré 1 embed en la página exacta … 🔗 https://player…/embed/…»*
+     con botones **Copiar / Abrir** en cada resultado.
+   - *«Busca episodios con el mismo nombre o similares»* → rastrea el
+     dominio, los agrupa por **temporada/episodio** (S01E02…) y entra en
+     cada uno a extraer su embed.
+   - *«Quédate solo con la temporada 1»*, *«Exporta los enlaces en json.gz»*,
+     *«Ayuda»*… la conversación recuerda el contexto.
+2. **Buscador dirigido de `<iframe>`**: el motor recorre el HTML en flujo y
+   conserva *solo* la línea del iframe (`src`, dominio, página exacta); el
+   resto de la página se descarta al instante. Más rápido y ligero.
+3. Panel lateral: resultados, datasets guardados y ajustes (páginas, pausa,
+   robots.txt, 🏠 modo «mi sitio», proxy propio de sesión).
+4. Exporta a CSV, JSON, JSONL, **CSV.GZ / JSON.GZ comprimidos**, XLSX o SQLite.
 
 ## Bots de IA
 
@@ -105,7 +97,9 @@ test de la ventana real bajo Xvfb y construcción del `.deb` en cada push/PR.
 ```
 screapers/
 ├── __main__.py     arranque (GUI / --selftest)
-├── desktop.py      interfaz Tkinter: URL, opciones, resultados, IA, auditoría
+├── desktop.py      interfaz conversacional oscura (chat con el bot)
+├── chatbot.py      cerebro conversacional: entiende órdenes y obedece
+├── iframe_finder.py buscador dirigido de <iframe> en flujo (sin DOM)
 ├── scraper.py      motor educado: robots, ritmo, reintentos, BFS mismo dominio
 ├── parser.py       parser HTML (stdlib) + selectores simples
 ├── security.py     PII, secretos, anti-SSRF, auditoría SHA-256

@@ -127,7 +127,8 @@ def extract_embeds(nodes, scripts, base_url: str) -> list[dict]:
     return embeds
 
 
-def parse_page(html: str, base_url: str, selector: str = "", want_embeds: bool = False) -> dict:
+def parse_page(html: str, base_url: str, selector: str = "", want_embeds: bool = False,
+               iframe_only: bool = False) -> dict:
     b = _Builder()
     try:
         b.feed(html or "")
@@ -181,6 +182,11 @@ def parse_page(html: str, base_url: str, selector: str = "", want_embeds: bool =
                             embeds.append({"tipo": "jsonld-video", "embed_url": u,
                                            "dominio": urlparse(u).netloc,
                                            "nombre": str(it.get("name", ""))[:120]})
+
+    if iframe_only:
+        from .iframe_finder import find_iframes
+        _, iframes = find_iframes(html, base_url)
+        embeds = iframes
 
     records: list[dict] = []
     if want_embeds:
