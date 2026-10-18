@@ -108,7 +108,8 @@ class Scraper:
         raise RuntimeError(f"No se pudo descargar {url}: {last_err}")
 
     # -- rastreo ------------------------------------------------------
-    def crawl(self, start_url: str, selector: str = "", on_page=lambda page, records: None):
+    def crawl(self, start_url: str, selector: str = "", on_page=lambda page, records: None,
+              want_embeds: bool = False):
         """BFS mismo dominio. Devuelve (páginas, registros)."""
         try:
             start = assert_safe_url(start_url, allow_private=self.s.allow_private)
@@ -138,7 +139,7 @@ class Scraper:
                 self.last_error = str(e)
                 self.log(f"✗ {url}: {e}")
                 continue
-            page = parse_page(html, url, selector)
+            page = parse_page(html, url, selector, want_embeds=want_embeds)
             pages += 1
             recs = page.pop("records")
             for r in recs:

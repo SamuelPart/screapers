@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import io
 import json
 import sqlite3
@@ -10,7 +11,7 @@ from pathlib import Path
 from .config import xdg_data
 from .security import safe_join
 
-FORMATS = ("csv", "json", "jsonl", "xlsx", "sqlite")
+FORMATS = ("csv", "json", "jsonl", "csv.gz", "json.gz", "xlsx", "sqlite")
 
 
 def _columns(records: list[dict]) -> list[str]:
@@ -106,6 +107,10 @@ class DatasetStore:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if fmt == "sqlite":
             return to_sqlite(records, dest)
+        if fmt.endswith(".gz"):  # comprimido: ideal para miles de embeds/enlaces
+            raw = {"csv.gz": to_csv, "json.gz": to_json}[fmt](records)
+            dest.write_bytes(gzip.compress(raw, compresslevel=9))
+            return dest
         data = {"csv": to_csv, "json": to_json, "jsonl": to_jsonl, "xlsx": to_xlsx}[fmt](records)
         dest.write_bytes(data)
         return dest

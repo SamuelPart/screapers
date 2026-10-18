@@ -30,13 +30,31 @@ Después busca **«Screapers»** en el menú de aplicaciones de tu escritorio
 ## Qué hace
 
 1. Pegas una **URL**, ajustas páginas/profundidad/pausa y pulsas **Iniciar**.
-2. Extrae enlaces, tablas, encabezados y datos estructurados. Con un
-   **selector** simple (`article`, `.producto`, `#lista`, `a`) afinas la extracción.
-3. Los **bots de IA** analizan la página, sugieren qué extraer, limpian y
+2. **Le dices al bot exactamente qué hacer** en el campo «¿Qué quieres hacer
+   en este sitio?». Entiende órdenes como:
+   - *«Extrae el enlace del embed de esta URL»*
+   - *«Extrae el embed y, si es una serie, busca episodios con el mismo
+     nombre o similares»* (entra en los relacionados y los agrupa por
+     temporada/episodio)
+   - *«Extrae las tablas»*, *«extrae los enlaces»*…
+   Escribe también el **título** (serie/película) para afinar la búsqueda.
+3. Extrae enlaces, tablas, encabezados y datos estructurados. Con un
+   **selector** simple (`article`, `.producto`, `#lista`, `a`) afinas más.
+4. Los **bots de IA** analizan la página, sugieren qué extraer, limpian y
    deduplican los registros, infieren tipos y resumen el contenido.
-4. Revisas la tabla de resultados y la **vista previa**, gestionas tus
-   **datasets guardados** (cargar/borrar desde la propia ventana) y
-   **exportas** a CSV, JSON, JSONL, XLSX o SQLite.
+5. Revisas resultados y **vista previa**, gestionas tus **datasets** y
+   **exportas** a CSV, JSON, JSONL, **CSV.GZ / JSON.GZ comprimidos**, XLSX o SQLite.
+
+### 🎬 Centro de streaming (películas y series)
+- **Embeds**: detecta `<iframe>`, `<embed>`, `<object>`, `<video>/<source>`,
+  `og:video`, `twitter:player`, JSON-LD `VideoObject` y oEmbed, con su dominio.
+- **Relacionados**: dentro del mismo dominio encuentra títulos iguales o
+  similares al buscado y los **ordena por temporada y episodio**.
+- **Buscador interno**: si en lo visitado no hay relacionados, prueba el
+  buscador del propio sitio (`/?s=`, `/search?q=`, `/buscar?q=`…).
+- **🏠 Modo «mi sitio»**: si la web es tuya (o tienes permiso), puedes
+  auditarla ignorando su `robots.txt`; queda registrado en la auditoría.
+  No salta inicios de sesión, CAPTCHAs ni bloqueos por IP.
 
 ## Bots de IA
 
@@ -93,6 +111,7 @@ screapers/
 ├── security.py     PII, secretos, anti-SSRF, auditoría SHA-256
 ├── datasets.py     datasets y exportación CSV/JSON/JSONL/XLSX/SQLite
 ├── config.py       configuración XDG (sin secretos en disco)
+├── streaming.py    órdenes en lenguaje natural, embeds y relacionados (series)
 └── ai/             providers (local / API) + bots Scout/Cleaner/Analyst
 packaging/          .desktop, icono SVG y constructor .deb
 install.sh          instalador como app para el usuario

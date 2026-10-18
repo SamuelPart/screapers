@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from html.parser import HTMLParser
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 VOID = {"br", "img", "hr", "meta", "link", "input", "area", "base", "col", "embed", "source", "track", "wbr"}
 
@@ -85,7 +85,49 @@ def _matches(node: Node, selector: str) -> bool:
     return True
 
 
-def parse_page(html: str, base_url: str, selector: str = "") -> dict:
+def extract_embeds(nodes, scripts, base_url: str) -> list[dict]:
+    """Todo lo embebible que la página expone (streaming)."""
+    embeds, seen = [], set()
+
+    def add(tipo, url, extra=None):
+        if not url:
+            return
+        url = urljoin(base_url, url)
+        if url in seen or not url.startswith(("http://", "https://")):
+            return
+        seen.add(url)
+        rec = {"tipo": tipo, "embed_url": url, "dominio": urlparse(url).netloc}
+        if extra:
+            rec.update(extra)
+        embeds.append(rec)
+
+    for n in nodes:
+        attrs = n.attrs
+        if n.tag == "iframe" and attrs.get("src"):
+            add("iframe", attrs["src"], {"titulo_iframe": attrs.get("title", "")})
+        elif n.tag == "embed" and attrs.get("src"):
+            add("embed", attrs["src"])
+        elif n.tag == "object" and attrs.get("data"):
+            add("object", attrs["data"])
+        elif n.tag == "video":
+            if attrs.get("src"):
+                add("video", attrs["src"], {"poster": attrs.get("poster", "")})
+            for c in n.children:
+                if c.tag == "source" and c.attrs.get("src"):
+                    add("video", c.attrs["src"], {"formato": c.attrs.get("type", "")})
+        elif n.tag == "meta":
+            prop = (attrs.get("property") or attrs.get("name") or "").lower()
+            if prop in ("og:video", "og:video:url", "og:video:secure_url", "twitter:player"):
+                add("meta-" + prop.split(":")[-1], attrs.get("content", ""))
+        elif n.tag == "link":
+            rel = (attrs.get("rel") or "").lower()
+            if attrs.get("type") == "application/json+oembed" or "alternate" in rel:
+                if attrs.get("href") and "oembed" in (attrs.get("href") or ""):
+                    add("oembed", attrs["href"])
+    return embeds
+
+
+def parse_page(html: str, base_url: str, selector: str = "", want_embeds: bool = False) -> dict:
     b = _Builder()
     try:
         b.feed(html or "")
@@ -127,7 +169,23 @@ def parse_page(html: str, base_url: str, selector: str = "") -> dict:
             except Exception:
                 pass
 
+    embeds = extract_embeds(nodes, b.scripts, base_url)
+    for item in json_ld:
+        items = item if isinstance(item, list) else [item]
+        for it in items:
+            if isinstance(it, dict) and "VideoObject" in str(it.get("@type", "")):
+                for key in ("embedUrl", "contentUrl"):
+                    if it.get(key):
+                        u = urljoin(base_url, it[key])
+                        if all(e["embed_url"] != u for e in embeds):
+                            embeds.append({"tipo": "jsonld-video", "embed_url": u,
+                                           "dominio": urlparse(u).netloc,
+                                           "nombre": str(it.get("name", ""))[:120]})
+
     records: list[dict] = []
+    if want_embeds:
+        title_txt = title_node.text() if title_node else ""
+        records = [{**e, "pagina": title_txt, "fuente_pagina": base_url} for e in embeds]
     if selector:
         for n in nodes:
             if _matches(n, selector):
@@ -139,7 +197,7 @@ def parse_page(html: str, base_url: str, selector: str = "") -> dict:
                         rec[attr] = n.attrs[attr]
                 if rec["texto"] or len(rec) > 1:
                     records.append(rec)
-    if not records:  # registros por defecto: enlaces con texto + filas de tablas
+    if not records and not want_embeds:  # registros por defecto: enlaces + tablas
         records = [{"texto": l["texto"], "url": l["url"]} for l in links if l["texto"]]
         for table in tables:
             if len(table) > 1:
@@ -157,5 +215,6 @@ def parse_page(html: str, base_url: str, selector: str = "") -> dict:
         "enlaces": links,
         "tablas": tables,
         "json_ld": json_ld,
+        "embeds": embeds,
         "records": records,
     }

@@ -11,7 +11,10 @@ from . import __version__
 from .ai.bots import AIBots
 from .config import get_settings, xdg_data
 from .datasets import FORMATS, DatasetStore
+from .parser import parse_page
 from .scraper import Scraper
+from .streaming import (base_title, find_related, group_episodes,
+                        parse_instruction, search_candidates)
 from .security import AuditLog, redact_text
 
 BG, CARD, ACCENT, TXT = "#f4f6fb", "#ffffff", "#2563eb", "#1e293b"
@@ -61,8 +64,8 @@ class App(tk.Tk):
         ttk.Label(head, text="🕷  Screapers", style="Title.TLabel").pack(side="left")
         ttk.Label(head, text=f"IA: {self.bots.mode}", style="Sub.TLabel").pack(side="right")
 
-        ttk.Label(self, text="Extrae datos de sitios web de forma educada y segura: respeta robots.txt, "
-                             "va despacio para no ser bloqueado y enmascara datos personales.",
+        ttk.Label(self, text="Streaming (películas y series) y web en general: dile al bot qué hacer, "
+                             "extrae embeds, busca títulos iguales o similares y protege tus datos.",
                   style="Sub.TLabel", wraplength=1020).pack(fill="x", padx=18)
 
         bar = ttk.Frame(self, style="Card.TFrame")
@@ -77,6 +80,20 @@ class App(tk.Tk):
         self.btn_start.grid(row=0, column=4, padx=(14, 6), pady=10)
         ttk.Button(bar, text="■ Detener", command=self.stop).grid(row=0, column=5, padx=(0, 12), pady=10)
         bar.columnconfigure(1, weight=1)
+
+        task = ttk.Frame(self, style="Card.TFrame")
+        task.pack(fill="x", padx=18, pady=(0, 10))
+        ttk.Label(task, text="🎯 ¿Qué quieres hacer en este sitio?", style="Card.TLabel", font=("Sans", 10, "bold")) \
+            .grid(row=0, column=0, padx=(12, 4), pady=(10, 4), sticky="w")
+        self.instruction_var = tk.StringVar(
+            value="Extrae el enlace del embed y, si es una serie, busca episodios con el mismo nombre o similares")
+        ttk.Entry(task, textvariable=self.instruction_var).grid(row=0, column=1, columnspan=3, sticky="ew", pady=(10, 4))
+        ttk.Label(task, text="Título (serie/película):", style="Card.TLabel").grid(row=1, column=0, padx=(12, 4), pady=(0, 10), sticky="w")
+        self.title_var = tk.StringVar()
+        ttk.Entry(task, textvariable=self.title_var, width=28).grid(row=1, column=1, sticky="w", pady=(0, 10))
+        ttk.Label(task, text="Ej.: «extrae el embed», «busca la temporada 2», «extrae las tablas»… el bot obedece tu orden.",
+                  style="Card.TLabel").grid(row=1, column=2, columnspan=2, padx=8, pady=(0, 10), sticky="w")
+        task.columnconfigure(1, weight=1)
 
         opts = ttk.Frame(self, style="Card.TFrame")
         opts.pack(fill="x", padx=18, pady=(0, 10))
@@ -107,6 +124,9 @@ class App(tk.Tk):
             row=2, column=1, columnspan=5, sticky="w", pady=(0, 8))
         ttk.Label(opts, text="ej. http://127.0.0.1:8080 · solo dura la sesión, no se guarda",
                   style="Card.TLabel").grid(row=2, column=6, columnspan=4, padx=6, pady=(0, 8), sticky="w")
+        self.own_site = tk.BooleanVar(value=False)
+        ttk.Checkbutton(opts, text="🏠 Es mi sitio / tengo permiso: auditarlo ignorando su robots.txt",
+                        variable=self.own_site).grid(row=3, column=0, columnspan=6, padx=12, pady=(0, 10), sticky="w")
 
         self.progress = ttk.Progressbar(self, mode="indeterminate")
         self.progress.pack(fill="x", padx=18)
@@ -164,6 +184,8 @@ class App(tk.Tk):
         s.use_ai = self.use_ai.get()
         s.proxy = self.proxy_var.get().strip() or None  # solo en memoria, jamás a disco
         s.respect_robots, s.mask_pii, s.allow_private = self.respect.get(), self.mask.get(), self.allow_priv.get()
+        if self.own_site.get():  # auditoría de tu propio sitio: sin robots, pero registrado
+            s.respect_robots = False
         s.export_format = self.fmt_var.get()
         self.bots = AIBots(s)
 
@@ -177,20 +199,83 @@ class App(tk.Tk):
         self._sync_settings()
         self.records = []
         self._last_page = None
+        self._extra_ai: list[str] = []
         self._fill_tree([])
         self.stop_event.clear()
         self.btn_start.configure(state="disabled")
         self.progress.start(12)
         self.status.set("Trabajando… (pausas educadas entre páginas para evitar bloqueos)")
         self.audit.append("scrape_start", url)
-        self.worker = threading.Thread(target=self._run, args=(url, self.selector_var.get().strip()), daemon=True)
+        if self.own_site.get():
+            self.audit.append("own_site_robots_ignored", url)
+        self.worker = threading.Thread(
+            target=self._run,
+            args=(url, self.selector_var.get().strip(),
+                  self.instruction_var.get().strip(), self.title_var.get().strip()),
+            daemon=True)
         self.worker.start()
 
-    def _run(self, url, selector):
+    def _run(self, url, selector, instruction="", title_input=""):
         try:
+            plan = parse_instruction(instruction, title_input)
+            self.queue.put(("plan", plan))
+            seen_pages: list[dict] = []
+
+            def on_page(page, recs):
+                seen_pages.append(page)
+                self.queue.put(("page", (page, recs)))
+
             scraper = Scraper(self.settings, log=lambda m: self.queue.put(("log", m)), stop=self.stop_event)
-            pages, records = scraper.crawl(url, selector, on_page=lambda p, r: self.queue.put(("page", (p, r))))
+            pages, records = scraper.crawl(url, selector, on_page=on_page,
+                                           want_embeds=(plan.intent == "embed"))
+
+            if plan.search_in_site and not self.stop_event.is_set():
+                query = plan.query or (base_title(seen_pages[0].get("titulo", "")) if seen_pages else "")
+                if query:
+                    all_links = [l for pg in seen_pages for l in pg.get("enlaces", [])]
+                    related = find_related(all_links, query)
+                    if not related:  # probar el buscador interno del dominio
+                        for cand in search_candidates(url, query):
+                            if self.stop_event.is_set():
+                                break
+                            try:
+                                if not scraper._allowed(cand):
+                                    continue
+                                self.queue.put(("log", f"🔎 Probando buscador del sitio: {cand}"))
+                                pg = parse_page(scraper.fetch(cand), cand,
+                                                want_embeds=(plan.intent == "embed"))
+                                seen_pages.append(pg)
+                                self.queue.put(("page", (pg, pg.get("records", []))))
+                                records.extend(pg.get("records", []))
+                                related = find_related(pg.get("enlaces", []), query)
+                                if related:
+                                    break
+                            except Exception as e:
+                                self.queue.put(("log", f"✗ Buscador {cand}: {e}"))
+                    self.queue.put(("related", (query, related)))
+                    if plan.follow_related and related:
+                        import copy as _copy
+                        visited = {pg.get("url") for pg in seen_pages}
+                        cfg = _copy.copy(self.settings)
+                        cfg.max_pages, cfg.max_depth = 1, 0
+                        follower = Scraper(cfg, log=lambda m: self.queue.put(("log", m)), stop=self.stop_event)
+                        for rel in related[:12]:
+                            if self.stop_event.is_set() or rel["url"] in visited:
+                                continue
+                            visited.add(rel["url"])
+                            n2, r2 = follower.crawl(rel["url"], selector, on_page=on_page,
+                                                    want_embeds=(plan.intent == "embed"))
+                            pages += n2
+                            records.extend(r2)
+
             cleaned = self.bots.clean_records(records)
+            if plan.intent == "embed":  # sin duplicados por URL de embed
+                seen_e, unique = set(), []
+                for r in cleaned:
+                    key = r.get("embed_url") or r.get("url") or str(r)
+                    if key not in seen_e:
+                        seen_e.add(key); unique.append(r)
+                cleaned = unique
             if pages:
                 self.store.save(url.split("//")[-1].split("/")[0] or "dataset", cleaned)
             self.queue.put(("done", (pages, cleaned, scraper.last_error)))
@@ -220,6 +305,8 @@ class App(tk.Tk):
             lines += ["\n— Resumen IA en nube —", info["resumen_ia"]]
         lines += ["\n— Esquema inferido —"] + [f"  • {k}: {v}" for k, v in info["esquema"].items()]
         self._set_text(self.ai_text, "\n".join(lines))
+        if getattr(self, "_extra_ai", None):
+            self._append(self.ai_text, "\n" + "\n".join(self._extra_ai))
 
     # ------------------------------------------------------ datasets
     def refresh_datasets(self):
@@ -306,7 +393,22 @@ class App(tk.Tk):
         try:
             while True:
                 kind, payload = self.queue.get_nowait()
-                if kind == "log":
+                if kind == "plan":
+                    plan = payload
+                    self._extra_ai = plan.describe()
+                    self._set_text(self.ai_text, "\n".join(self._extra_ai))
+                    self.status.set("Bot: " + self._extra_ai[1].strip() if len(self._extra_ai) > 1 else "Bot trabajando…")
+                elif kind == "related":
+                    query, related = payload
+                    bloque = [f"\n🔎 Búsqueda en el dominio de títulos como «{query}»:", group_episodes(related)]
+                    bloque += [f"  • [{r.get('similitud', '')}] {r.get('texto', '') or r['url']} → {r['url']}"
+                               for r in related[:25]]
+                    self._extra_ai = getattr(self, "_extra_ai", []) + bloque
+                    if getattr(self, "_last_page", None):
+                        pass
+                    else:
+                        self._set_text(self.ai_text, "\n".join(self._extra_ai))
+                elif kind == "log":
                     self._append(self.log_text, payload)
                     self.status.set(payload)
                 elif kind == "page":
