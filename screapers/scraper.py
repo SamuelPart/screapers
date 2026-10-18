@@ -109,7 +109,7 @@ class Scraper:
 
     # -- rastreo ------------------------------------------------------
     def crawl(self, start_url: str, selector: str = "", on_page=lambda page, records: None,
-              want_embeds: bool = False):
+              want_embeds: bool = False, iframe_only: bool = False):
         """BFS mismo dominio. Devuelve (páginas, registros)."""
         try:
             start = assert_safe_url(start_url, allow_private=self.s.allow_private)
@@ -139,7 +139,7 @@ class Scraper:
                 self.last_error = str(e)
                 self.log(f"✗ {url}: {e}")
                 continue
-            page = parse_page(html, url, selector, want_embeds=want_embeds)
+            page = parse_page(html, url, selector, want_embeds=want_embeds, iframe_only=iframe_only)
             pages += 1
             recs = page.pop("records")
             for r in recs:

@@ -80,8 +80,22 @@ def mask_value(value):
     return out
 
 
+_URL_KEYS = ("url", "embed_url", "fuente", "pagina", "pagina_exacta", "dominio", "href", "src")
+
+
 def mask_records(records: list[dict]) -> list[dict]:
-    return [{k: mask_value(v) for k, v in r.items()} for r in records]
+    # Las URL se entregan funcionales (es el resultado del trabajo); solo se
+    # redactan credenciales que pudieran venir dentro. El resto sí se enmascara.
+    out = []
+    for r in records:
+        row = {}
+        for k, v in r.items():
+            if isinstance(v, str) and any(u in str(k).lower() for u in _URL_KEYS):
+                row[k] = redact_text(v)
+            else:
+                row[k] = mask_value(v)
+        out.append(row)
+    return out
 
 
 # ----------------------------- Anti-SSRF -----------------------------
